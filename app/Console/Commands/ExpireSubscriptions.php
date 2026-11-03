@@ -1,0 +1,22 @@
+<?php
+
+namespace App\Console\Commands;
+
+use App\Models\Subscription;
+use Illuminate\Console\Command;
+
+class ExpireSubscriptions extends Command
+{
+    protected $signature = 'subscriptions:expire';
+    protected $description = 'Mark expired paid subscriptions as expired.';
+
+    public function handle(): int
+    {
+        $count = Subscription::where('status', 'active')
+            ->where('ends_at', '<', now())
+            ->update(['status' => 'expired']);
+
+        $this->info("Expired {$count} active subscriptions.");
+        return self::SUCCESS;
+    }
+}

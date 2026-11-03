@@ -1,0 +1,142 @@
+version: '3.9'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: cnm-app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - ./:/var/www/html
+      - cnm-storage:/var/www/html/storage
+    networks:
+      - cnm
+    depends_on:
+      - mysql
+      - redis
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: cnm-nginx
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-80}:80"
+    volumes:
+      - ./:/var/www/html
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - cnm
+    depends_on:
+      - app
+
+  mysql:
+    image: mysql:8.0
+    container_name: cnm-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE:-customernearme}
+      MYSQL_USER: ${DB_USERNAME:-cnm}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-secret}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-secret}
+      MYSQL_ALLOW_EMPTY_PASSWORD: 'no'
+    volumes:
+      - cnm-mysql-data:/var/lib/mysql
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    networks:
+      - cnm
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: cnm-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
+    volumes:
+      - cnm-redis-data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    networks:
+      - cnm
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  queue:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: cnm-queue
+    restart: unless-stopped
+    working_dir: /var/www/html
+    command: ["php", "artisan", "horizon"]
+    volumes:
+      - ./:/var/www/html
+      - cnm-storage:/var/www/html/storage
+    networks:
+      - cnm
+    depends_on:
+      - redis
+      - mysql
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: cnm-scheduler
+    restart: unless-stopped
+    working_dir: /var/www/html
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["while true; do php artisan schedule:run --verbose --no-interaction; sleep 60; done"]
+    volumes:
+      - ./:/var/www/html
+      - cnm-storage:/var/www/html/storage
+    networks:
+      - cnm
+    depends_on:
+      - redis
+      - mysql
+
+  node:
+    image: node:20-alpine
+    container_name: cnm-node
+    working_dir: /var/www/html
+    volumes:
+      - ./:/var/www/html
+    ports:
+      - "5173:5173"
+    networks:
+      - cnm
+    command: ["sh", "-c", "npm install && npm run dev -- --host"]
+    profiles:
+      - dev
+
+  mailpit:
+    image: axllent/mailpit
+    container_name: cnm-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - cnm
+    profiles:
+      - dev
+
+volumes:
+  cnm-mysql-data:
+  cnm-redis-data:
+  cnm-storage:
+
+networks:
+  cnm:
+    driver: bridge

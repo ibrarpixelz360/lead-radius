@@ -1,0 +1,9 @@
+# Python 3.12+ (3.14 requires greenlet pre-release — install order matters)
+# Install with:
+#   pip install "greenlet>=3.2.0" --pre
+#   pip install playwright --no-deps
+#   pip install pyee
+#   playwright install chromium
+greenlet>=3.2.0
+playwright==1.60.0
+pyee
